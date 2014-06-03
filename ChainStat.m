@@ -21,6 +21,8 @@ LoadChain::usage = "LoadChain[filename, burnInRate] reads MCMC chains, which ret
 	chain contains {numberOfStay, chi2, value for vars in names}.
 	A list of filenames can be given and in this case those chains are combined (assuming the same parameters).";
 CondChain::usage = "CondChain[condition] produces new chainInfo from $Chain, subject to condition.";
+AddToChain::usage = "AddToChain[varName, texName, expression] add a column to chain.
+  Example: AddToChain[\"nsMinus1\", \"n_s-1\", \"ns\"-1] adds nsMinus1 to chain.";
 Sel::usage = "Sel[{var1, var2, ...}, condition] selects samples of variables, subject to optional condition.";
 Cnt::usage = "Cot[{var1, var2, ...}, cond] counts number of samples on binned grads, subject to optional condition.";
 Hist::usage = "Cot[{var1, var2, ...}, cond] calculates CDF on binned grads, subject to optional condition.";
@@ -88,7 +90,7 @@ SmoothContourPlot[data_List, opts:OptionsPattern[{SmoothContourPlot, ListContour
 
 Options[LoadChain] = {"BurnIn"->0.3};
 LoadChain[fn_String, OptionsPattern[]]:= Module[{names, chainFiles, chain, totChain={}, burnIn=OptionValue["BurnIn"]},
-  names = Import[fn<>".paramnames"];
+  names = Map[StringTrim, Import[fn<>".paramnames"], -1];
   (* for simplicity, assuming #chains \[LessEqual] 9. Otherwise, only first 9 are read. *)
   chainFiles = Import["!ls "<>fn<>"_?.txt","List"] ;
   Do[
@@ -123,10 +125,17 @@ StyledName[name_String]:= Style[TexName[name], 36]
 (* ****************************************************************************************************************** *)
 (* Selection from chain *)
 
-CondChain[condRaw_]:= Module[{vars, cond},
-  vars = Cases[condRaw, _String, Infinity];
-  cond[point_]:= condRaw /. MapThread[Rule, {vars, point[[ChainPos@#]]& /@ vars}];
-  Append[$Chain[[;;-2]], Select[$Chain[[-1]], cond]]];
+ExprOnChain::usage = "ExprOnChain[expr] converts strings in expr into pure function evolving chain positions.
+  For example, ExprOnChain[\"likelihood\"<4900] returns a pure function #[[2]] < 4900 &";
+ExprOnChain[expr_]:= Module[{vars = Cases[expr, _String, Infinity], slt},
+  (slottedExpr&) /. slottedExpr -> expr /. MapThread[Rule, {vars, slt /@ ChainPos /@ vars}] /.  slt -> Function[x, #[[x]]] ] ;
+
+CondChain[cond_]:= Append[$Chain[[;;-2]], Select[$Chain[[-1]], ExprOnChain@cond]];
+
+AddToChain[vName_, texName_, exprRaw_]:= Module[{expr, newColumn},
+  expr = ExprOnChain @ exprRaw;
+  newColumn = expr /@ $Chain[[3]];
+  $Chain = {Append[$Chain[[1]], vName], Append[$Chain[[2]], texName], Transpose@Append[Transpose[$Chain[[3]]], newColumn]}];
 
 Sel[vars_List]:= Flatten[#, 1]& @ (ConstantArray[{##2}, Round@#1]& (* expand numberOfStay *) @@@
     $Chain[[3]][[All, Prepend[ChainPos /@ vars, 1] (* also get numberOfStay *) ]]);
@@ -150,8 +159,9 @@ Stat[var_String, cond_:True, opt:OptionsPattern[Histogram]] /;IsntRule[cond] := 
 Stat[{var1_String, var2_String}, cond_:True, opt:OptionsPattern[{SmoothContourPlot, ListContourPlot}]] /;IsntRule[cond] :=
     SmoothContourPlot[Hist[{var1, var2}, cond], FrameLabel->{StyledName@var1, Column[{StyledName@var2,""}]}, opt ]
 
-PtPlot[{var1_String, var2_String}, cond_:True] /;IsntRule[cond] := ListPlot[Sel[{var1, var2}, cond],
-  PlotStyle -> Directive[Black, Opacity@0.05], FrameLabel->{StyledName@var1, StyledName@var2}, PlotOptions];
+PtPlot[{var1_String, var2_String}, cond_:True, opt:OptionsPattern[ListPlot]] /;IsntRule[cond] := ListPlot[Sel[{var1, var2}, cond],
+  opt, PlotStyle -> Directive[Black, Opacity@0.05], PlotRange->All,
+  FrameLabel->{StyledName@var1, StyledName@var2}, PlotOptions];
 
 (* ****************************************************************************************************************** *)
 (* Setup of environment *)
