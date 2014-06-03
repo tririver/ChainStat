@@ -16,6 +16,7 @@ HistList::usage = "HistList[data, \"NBin\"->Num] is CntList, with \"Operation\" 
 
 $Chain::usage = "Chain in operation."
 SmoothContourPlot::usage = "SmoothContourPlot[data] is similar to ListContourPlot, while smooths the result.";
+SmoothDensityPlot::usage = "SmoothDensityPlot[data] is similar to ListDensityPlot, while smooths the result."
 LoadChain::usage = "LoadChain[filename, burnInRate] reads MCMC chains, which returns $Chain.
 	$Chain contains {names, texNames, chain}, where
 	chain contains {numberOfStay, chi2, value for vars in names}.
@@ -25,6 +26,9 @@ AddToChain::usage = "AddToChain[varName, texName, expression] add a column to ch
   Example: AddToChain[\"nsMinus1\", \"n_s-1\", \"ns\"-1] adds nsMinus1 to chain.";
 Sel::usage = "Sel[{var1, var2, ...}, condition] selects samples of variables, subject to optional condition.";
 Cnt::usage = "Cot[{var1, var2, ...}, cond] counts number of samples on binned grads, subject to optional condition.";
+PlotDensity::usage = "PlotDensity[{var1, var2}] performs density plot of the two variables' number counting.";
+PlotContour::usage = "PlotContour[{var1, var2}] performs contour plot of the two variables' CDF.";
+PlotSample::usage = "PlotSample[{var1, var2}] performs direct plot of the two variables' data points.";
 Hist::usage = "Cot[{var1, var2, ...}, cond] calculates CDF on binned grads, subject to optional condition.";
 Stat::usage = "Stat[var] or Stat[{var1, var2}] do 1d or 2d statistics and plots.";
 PtPlot::usage = "PtPlot[{var1, var2}, cond] plots points on two dimensions.";
@@ -61,7 +65,7 @@ HistList[data_, opt:OptionsPattern[CntList]]:= CntList[data, "Operation"->CalcCD
 
 hasLMRfont = !FreeQ[FE`Evaluate@FEPrivate`GetPopupList@"MenuListFonts","Latin Modern Roman"];
 PlotOptions = {Frame->True, PlotRange->All, Axes->False, ImageSize->Large, AspectRatio->1,
-  ImagePadding->{{150,20},{150,20}},
+  ImagePadding->{{150,30},{150,30}},
   BaseStyle->{FontFamily->If[hasLMRfont, "Latin Modern Roman", "Times"], FontSize->24}};
 
 (* Loess and LoessFit are based on code from Rahul Narain *)
@@ -80,12 +84,18 @@ LoessFit[data_List, OptionsPattern[]]:= Module[{sd, scaledData, nearest, nNear},
   nNear = Floor[OptionValue["Smoothing"]*Sqrt@Length@data];
   Loess[nearest, nNear][#1/sd[[1]], #2/sd[[2]]]& ]
 
-SmoothContourPlot[data_List, opts:OptionsPattern[ListContourPlot]]:= Module[{fit, xmin, xmax, ymin, ymax},
+SmoothContourPlot[data_List, opts:OptionsPattern[ContourPlot]]:= Module[{fit, xmin, xmax, ymin, ymax},
   fit = LoessFit[data];
   {{xmin, xmax}, {ymin, ymax}} = {Min[#], Max[#]} & /@ Most[Transpose[data]];
   ContourPlot[fit[x, y], {x, xmin, xmax}, {y, ymin, ymax}, opts, Contours->1-{S2P[1], S2P[2]}, ContourShading->None,
     ContourStyle->{Directive[Darker@Blue,Thick], Directive[Lighter@Blue,Thick, Dashed]}, Evaluate[Sequence@@PlotOptions]]];
 
+SmoothDensityPlot[data_List, opts:OptionsPattern[DensityPlot]]:= Module[{fit, xmin, xmax, ymin, ymax, colorFunc},
+  fit = LoessFit[data];
+  {{xmin, xmax}, {ymin, ymax}} = {Min[#], Max[#]} & /@ Most[Transpose[data]];
+  colorFunc = Function[z, RGBColor[1-z, 1-z, 1-z]];
+  DensityPlot[fit[x, y], {x, xmin, xmax}, {y, ymin, ymax}, opts, PlotRange->All,
+    ColorFunction->colorFunc, Evaluate[Sequence@@PlotOptions]]]
 
 (* ****************************************************************************************************************** *)
 (* Load chain *)
@@ -152,24 +162,31 @@ IsntRule[f_] := Head[f]=!=List && Head[f]=!=Rule;
 Cnt[vars_List, cond_:True, opt:OptionsPattern[CntList]] /;IsntRule[cond] := CntList[Sel[vars, cond], opt];
 Hist[vars_List, cond_:True, opt:OptionsPattern[CntList]] /;IsntRule[cond] := Cnt[vars, cond, "Operation"->CalcCDF, opt]
 
+PlotDensity[{var1_String, var2_String}, cond_:True, opt:OptionsPattern[DensityPlot]] /;IsntRule[cond] :=
+    SmoothDensityPlot[Cnt[{var1, var2}, cond], PlotRange->All, FrameLabel->{StyledName@var1, StyledName@var2}, opt];
+
+PlotContour[{var1_String, var2_String}, cond_:True, opt:OptionsPattern[{SmoothContourPlot, ListContourPlot}]] /;IsntRule[cond] :=
+    SmoothContourPlot[Hist[{var1, var2}, cond], FrameLabel->{StyledName@var1, StyledName@var2}, opt];
+
+PlotSample[{var1_String, var2_String}, cond_:True, opt:OptionsPattern[ListPlot]] /;IsntRule[cond] := ListPlot[Sel[{var1, var2}, cond],
+  opt, PlotStyle -> Directive[Black, Opacity@0.05], PlotRange->All,
+  FrameLabel->{StyledName@var1, StyledName@var2}, PlotOptions];
+
 Stat[var_String, cond_:True, opt:OptionsPattern[Histogram]] /;IsntRule[cond] := Module[{selected = Sel[{var}, cond]},
   Print[TexName@var, " = ", Mean@Flatten@selected, " \[PlusMinus] ", StandardDeviation@Flatten@selected, " (mean, std var)"];
   (*Print["\[Sigma] contours: ", {#1,p2\[Sigma][1-#2]}& @@@ HistList[selected,30]];*)
   Histogram[Flatten@selected, FrameLabel->{StyledName@var, None}, FrameTicks->{{None,None},{Automatic,Automatic}},
     ChartStyle->Directive[EdgeForm[None], Lighter@Gray], opt, PlotOptions]];
 
-Stat[{var1_String, var2_String}, cond_:True, opt:OptionsPattern[{SmoothContourPlot, ListContourPlot}]] /;IsntRule[cond] :=
-    SmoothContourPlot[Hist[{var1, var2}, cond], FrameLabel->{StyledName@var1, Column[{StyledName@var2,""}]}, opt ]
-
-PtPlot[{var1_String, var2_String}, cond_:True, opt:OptionsPattern[ListPlot]] /;IsntRule[cond] := ListPlot[Sel[{var1, var2}, cond],
-  opt, PlotStyle -> Directive[Black, Opacity@0.05], PlotRange->All,
-  FrameLabel->{StyledName@var1, StyledName@var2}, PlotOptions];
+Stat[{var1_String, var2_String}, etc___] := PlotContour[{var1, var2}, etc];
 
 (* ****************************************************************************************************************** *)
 (* Setup of environment *)
 
 SetDirectory[If[$Notebooks && Quiet[Check[NotebookDirectory[],False]]=!=False (* If exists saved nb *),
   NotebookDirectory[], Import["!pwd","Text"]]];
+
+Print["ChainStat, by Yi Wang (2014, GPLv3). Report bug to tririverwangyi@gmail.com\nThis is a pre-alpha version. Please check with independent methods before using the results."];
 
 End[]
 EndPackage[]
