@@ -64,26 +64,28 @@ PlotOptions = {Frame->True, PlotRange->All, Axes->False, ImageSize->Large, Aspec
   ImagePadding->{{150,20},{150,20}},
   BaseStyle->{FontFamily->If[hasLMRfont, "Latin Modern Roman", "Times"], FontSize->24}};
 
-(* Code of loess and smoothContourPlot mainly comes from Rahul Narain *)
+(* Loess and LoessFit are based on code from Rahul Narain *)
+
 Loess[nearest_, k_][x_, y_] := Module[{nearPts, d, u, v},
   nearPts = nearest[{x, y}, k];
   d = EuclideanDistance[{x, y}, Most[#]] & /@ nearPts;
   d = d/Max[d];
   LinearModelFit[nearPts, {u, v, u^2, v^2, u v}, {u, v}, Weights -> (1 - d^3)^3][x,y]];
 
-Options[SmoothContourPlot] = Join[{"Smoothing"->2, Contours->1-{S2P[1], S2P[2]}, ContourShading->None,
-  ContourStyle->{Directive[Darker@Blue,Thick], Directive[Lighter@Blue,Thick, Dashed]}}, PlotOptions];
-SmoothContourPlot[data_List, opts:OptionsPattern[{SmoothContourPlot, ListContourPlot}]]:= Module[
-  {sd, scalex, scaley, scaledData, nearest, nNear, fit, xmin, xmax, ymin, ymax,
-    pltOpts = Sequence @@ FilterRules[{opts}~Join~Options[SmoothContourPlot], Options[ContourPlot]] },
-  sd = StandardDeviation[data];
-  {scalex, scaley} = 1/Most[sd];
-  scaledData = {scalex, scaley, 1} # & /@ data;
+Options[LoessFit] = {"Smoothing"->2};
+LoessFit[data_List, OptionsPattern[]]:= Module[{sd, scaledData, nearest, nNear},
+  sd = Most@StandardDeviation@data;
+  scaledData = Transpose @ Append[Most@Transpose@data/sd, Last@Transpose@data];
   nearest = Nearest[scaledData /. {x_, y_, z_} :> ({x, y} -> {x, y, z})];
   nNear = Floor[OptionValue["Smoothing"]*Sqrt@Length@data];
-  fit = Loess[nearest, nNear];
+  Loess[nearest, nNear][#1/sd[[1]], #2/sd[[2]]]& ]
+
+SmoothContourPlot[data_List, opts:OptionsPattern[ListContourPlot]]:= Module[{fit, xmin, xmax, ymin, ymax},
+  fit = LoessFit[data];
   {{xmin, xmax}, {ymin, ymax}} = {Min[#], Max[#]} & /@ Most[Transpose[data]];
-  ContourPlot[fit[scalex x, scaley y], {x, xmin, xmax}, {y, ymin, ymax}, Evaluate@pltOpts] ]
+  ContourPlot[fit[x, y], {x, xmin, xmax}, {y, ymin, ymax}, opts, Contours->1-{S2P[1], S2P[2]}, ContourShading->None,
+    ContourStyle->{Directive[Darker@Blue,Thick], Directive[Lighter@Blue,Thick, Dashed]}, Evaluate[Sequence@@PlotOptions]]];
+
 
 (* ****************************************************************************************************************** *)
 (* Load chain *)
