@@ -45,13 +45,25 @@ S2P = Erf[#/Sqrt[2.]]&;
 (* ****************************************************************************************************************** *)
 (* Binning of list *)
 
-Options[CntList] = {"Operation"->Identity, "NBin"->30};
-CntList[data_, OptionsPattern[]]:= Module[
+Options[CntListM] = Options[CntListW] = {"Operation"->Identity, "NBin"->30};
+CntList=CntListW;
+
+(* M version uses BinCounts. However, BinCounts needs to be applied to grids which is slow and miss points. Otherwise boundary is not regular. *)
+CntListM[data_, OptionsPattern[]]:= Module[
   {min, max, binCoord, binCount, nBin=OptionValue["NBin"], operation=OptionValue["Operation"]},
   {min, max} = Transpose[{Min@#, Max@#}& /@ Transpose[data]];
   binCoord = # * (max-min) / nBin + min & /@ Tuples[Range[nBin]-0.5, Length@data[[1]]];
   binCount = Flatten @ BinCounts[data, Apply[Sequence,{Range[#1, #2, (#2-#1)/nBin]}& @@@ Transpose[{min,max}]] ];
   MapThread[Append[#1,#2]&,{binCoord, operation@binCount}] ]
+
+(* Homemade BinCounts. Faster and does not miss points. *)
+CntListW[data_, OptionsPattern[]]:=Module[{tmin, tmax, nBin=OptionValue["NBin"], operation=OptionValue["Operation"], sumCnt, sumOne, f, res},
+  {tmax, tmin} = Transpose[{Max@#, Min@#} & /@ Transpose[data]];
+  Print@"x";
+  sumCnt = Total[Apply[f, Ceiling[$MachineEpsilon + nBin (# - tmin)/(tmax - tmin)]] & /@ data];
+  sumOne = Total[f @@@ Tuples[Range@nBin, Length@tmax]];
+  res = Append[({##}[[;;-2]]-0.5) (tmax-tmin)/nBin + tmin, {##}[[-1]]] & @@@ (Apply[List, sumCnt+sumOne] /. n_. f[a__] :> {a,n-1});
+  Transpose @ Append[Transpose[res][[;;-2]], operation@Transpose[res][[-1]]] ]
 
 CalcCDF[binCount_]:= Module[{sortFlat, cdf},
   sortFlat = Sort @ binCount;
@@ -158,11 +170,17 @@ IsntRule[f_] := Head[f]=!=List && Head[f]=!=Rule;
 Cnt[vars_List, cond_:True, opt:OptionsPattern[CntList]] /;IsntRule[cond] := CntList[Sel[vars, cond], opt];
 Hist[vars_List, cond_:True, opt:OptionsPattern[CntList]] /;IsntRule[cond] := Cnt[vars, cond, "Operation"->CalcCDF, opt]
 
-PlotDensity[{var1_String, var2_String}, cond_:True, opt:OptionsPattern[DensityPlot]] /;IsntRule[cond] :=
-    SmoothDensityPlot[Cnt[{var1, var2}, cond], PlotRange->All, FrameLabel->{StyledName@var1, StyledName@var2}, opt];
+(* PlotDensity:= PlotDensityM; *)(* This is the faster and the smoother between the two, but has less control. *)
+PlotDensity:= PlotDensityM;
+PlotDensityW[{var1_String, var2_String}, cond_:True, opt:OptionsPattern[DensityPlot]] /;IsntRule[cond] :=
+  SmoothDensityPlot[Cnt[{var1, var2}, cond], opt, PlotRange->All, FrameLabel->{StyledName@var1, StyledName@var2}];
+
+PlotDensityM[{var1_String, var2_String}, cond_:True, opt:OptionsPattern[SmoothDensityHistogram]] /;IsntRule[cond] :=
+  SmoothDensityHistogram[Sel[{var1, var2}, cond], opt, ColorFunction->(GrayLevel[1-#]&), PlotRange->Full,
+    FrameLabel->{StyledName@var1, StyledName@var2}, Evaluate[Sequence@@PlotOptions]];
 
 PlotContour[{var1_String, var2_String}, cond_:True, opt:OptionsPattern[ListContourPlot]] /;IsntRule[cond] :=
-    SmoothContourPlot[Hist[{var1, var2}, cond], FrameLabel->{StyledName@var1, StyledName@var2}, opt];
+  SmoothContourPlot[Hist[{var1, var2}, cond], opt, FrameLabel->{StyledName@var1, StyledName@var2}];
 
 PlotSample[{var1_String, var2_String}, cond_:True, opt:OptionsPattern[ListPlot]] /;IsntRule[cond] := ListPlot[Sel[{var1, var2}, cond],
   opt, PlotStyle -> Directive[Black, Opacity@0.05], PlotRange->All,
@@ -171,8 +189,8 @@ PlotSample[{var1_String, var2_String}, cond_:True, opt:OptionsPattern[ListPlot]]
 Stat[var_String, cond_:True, opt:OptionsPattern[Histogram]] /;IsntRule[cond] := Module[{selected = Sel[{var}, cond]},
   Print[TexName@var, " = ", Mean@Flatten@selected, " \[PlusMinus] ", StandardDeviation@Flatten@selected, " (mean, std var)"];
   (*Print["\[Sigma] contours: ", {#1,p2\[Sigma][1-#2]}& @@@ HistList[selected,30]];*)
-  Histogram[Flatten@selected, FrameLabel->{StyledName@var, None}, FrameTicks->{{None,None},{Automatic,Automatic}},
-    ChartStyle->Directive[EdgeForm[None], Lighter@Gray], opt, PlotOptions]];
+  Histogram[Flatten@selected, opt, FrameLabel->{StyledName@var, None}, FrameTicks->{{None,None},{Automatic,Automatic}},
+    ChartStyle->Directive[EdgeForm[None], Lighter@Gray], PlotOptions]];
 
 Stat[{var1_String, var2_String}, etc___] := PlotContour[{var1, var2}, etc];
 
