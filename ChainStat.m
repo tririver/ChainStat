@@ -69,7 +69,6 @@ PlotOptions = {Frame->True, PlotRange->All, Axes->False, ImageSize->Large, Aspec
   BaseStyle->{FontFamily->If[hasLMRfont, "Latin Modern Roman", "Times"], FontSize->24}};
 
 (* Loess and LoessFit are based on code from Rahul Narain *)
-
 Loess[nearest_, k_][x_, y_] := Module[{nearPts, d, u, v},
   nearPts = nearest[{x, y}, k];
   d = EuclideanDistance[{x, y}, Most[#]] & /@ nearPts;
@@ -101,15 +100,12 @@ SmoothDensityPlot[data_List, opts:OptionsPattern[DensityPlot]]:= Module[{fit, xm
 (* Load chain *)
 
 Options[LoadChain] = {"BurnIn"->0.3};
-LoadChain[fn_String, OptionsPattern[]]:= Module[{names, chainFiles, chain, totChain={}, burnIn=OptionValue["BurnIn"]},
+LoadChain[fn_String, OptionsPattern[]]:= Module[{names, chainFiles, chainList, burnIn=OptionValue["BurnIn"]},
   names = Map[StringTrim, Import[fn<>".paramnames"], -1];
-  (* for simplicity, assuming #chains \[LessEqual] 9. Otherwise, only first 9 are read. *)
-  chainFiles = Import["!ls "<>fn<>"_?.txt","List"] ;
-  Do[
-    chain = ReadList[f,Table[Number,{Length@names+2}]];
-    totChain = Join[totChain,chain[[Floor[burnIn*Length@chain];;]]]
-    ,{f,chainFiles}];
-  $Chain = Append[names\[Transpose],totChain]];
+  (* for simplicity, assuming #chains \[LessEqual] 99. Otherwise, only first 99 are read. *)
+  chainFiles = Join[Import["!ls "<>fn<>"_?.txt","List"], Import["!ls "<>fn<>"_??.txt","List"]];
+  chainList = Function[f, #[[Floor[burnIn*Length@#];;]]& @ ReadList[f,Table[Number,{Length@names+2}]]] /@ chainFiles;
+  $Chain = Append[Transpose@names, Join@@chainList]]
 
 LoadChain::difvar = "Warning: Chains have different variables. Combination may be wrong!";
 LoadChain[flist_List, opt:OptionsPattern[]]:= Module[{infos = LoadChain[#, opt]& /@ flist},
@@ -165,7 +161,7 @@ Hist[vars_List, cond_:True, opt:OptionsPattern[CntList]] /;IsntRule[cond] := Cnt
 PlotDensity[{var1_String, var2_String}, cond_:True, opt:OptionsPattern[DensityPlot]] /;IsntRule[cond] :=
     SmoothDensityPlot[Cnt[{var1, var2}, cond], PlotRange->All, FrameLabel->{StyledName@var1, StyledName@var2}, opt];
 
-PlotContour[{var1_String, var2_String}, cond_:True, opt:OptionsPattern[{SmoothContourPlot, ListContourPlot}]] /;IsntRule[cond] :=
+PlotContour[{var1_String, var2_String}, cond_:True, opt:OptionsPattern[ListContourPlot]] /;IsntRule[cond] :=
     SmoothContourPlot[Hist[{var1, var2}, cond], FrameLabel->{StyledName@var1, StyledName@var2}, opt];
 
 PlotSample[{var1_String, var2_String}, cond_:True, opt:OptionsPattern[ListPlot]] /;IsntRule[cond] := ListPlot[Sel[{var1, var2}, cond],
