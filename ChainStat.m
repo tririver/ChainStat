@@ -25,6 +25,7 @@ CondChain::usage = "CondChain[condition] produces new chainInfo from $Chain, sub
 AddToChain::usage = "AddToChain[varName, texName, expression] add a column to chain.
   Example: AddToChain[\"nsMinus1\", \"n_s-1\", \"ns\"-1] adds nsMinus1 to chain.";
 Sel::usage = "Sel[{var1, var2, ...}, condition] selects samples of variables, subject to optional condition.";
+BestFits::usage = "BestFits[n] prints the first n best fit points."
 Cnt::usage = "Cot[{var1, var2, ...}, cond] counts number of samples on binned grads, subject to optional condition.";
 PlotDensity::usage = "PlotDensity[{var1, var2}] performs density plot of the two variables' number counting.";
 PlotContour::usage = "PlotContour[{var1, var2}] performs contour plot of the two variables' CDF.";
@@ -59,7 +60,6 @@ CntListM[data_, OptionsPattern[]]:= Module[
 (* Homemade BinCounts. Faster and does not miss points. *)
 CntListW[data_, OptionsPattern[]]:=Module[{tmin, tmax, nBin=OptionValue["NBin"], operation=OptionValue["Operation"], sumCnt, sumOne, f, res},
   {tmax, tmin} = Transpose[{Max@#, Min@#} & /@ Transpose[data]];
-  Print@"x";
   sumCnt = Total[Apply[f, Ceiling[$MachineEpsilon + nBin (# - tmin)/(tmax - tmin)]] & /@ data];
   sumOne = Total[f @@@ Tuples[Range@nBin, Length@tmax]];
   res = Append[({##}[[;;-2]]-0.5) (tmax-tmin)/nBin + tmin, {##}[[-1]]] & @@@ (Apply[List, sumCnt+sumOne] /. n_. f[a__] :> {a,n-1});
@@ -147,7 +147,7 @@ StyledName[name_String]:= Style[TexName[name], 36]
 
 ExprOnChain::usage = "ExprOnChain[expr] converts strings in expr into pure function evolving chain positions.
   For example, ExprOnChain[\"likelihood\"<4900] returns a pure function #[[2]] < 4900 &";
-ExprOnChain[expr_]:= Module[{vars = Cases[expr, _String, Infinity], slt},
+ExprOnChain[expr_]:= Module[{vars = Cases[{expr}, _String, Infinity], slt},
   (slottedExpr&) /. slottedExpr -> expr /. MapThread[Rule, {vars, slt /@ ChainPos /@ vars}] /.  slt -> Function[x, #[[x]]] ] ;
 
 CondChain[cond_]:= Append[$Chain[[;;-2]], Select[$Chain[[-1]], ExprOnChain@cond]];
@@ -161,6 +161,11 @@ Sel[vars_List]:= Flatten[#, 1]& @ (ConstantArray[{##2}, Round@#1]& (* expand num
     $Chain[[3]][[All, Prepend[ChainPos /@ vars, 1] (* also get numberOfStay *) ]]);
 Sel[var_String]:= Flatten @ Sel @ {var};
 Sel[var_, cond_]:= Block[{$Chain = CondChain[cond]}, Sel[var]];
+
+BestFits[nPts_:5]:= Module[{names, fits},
+  names = {Prepend[$Chain[[1]], "likelihood"], Prepend[TexName /@ $Chain[[1]], TexName["likelihood"]]};
+  fits = SortBy[$Chain[[3]], #[[2]] &][[;; nPts, 2 ;;]];
+  MatrixForm @ Join[names, fits]]
 
 (* ****************************************************************************************************************** *)
 (* Chain statistics *)
@@ -189,8 +194,8 @@ PlotSample[{var1_String, var2_String}, cond_:True, opt:OptionsPattern[ListPlot]]
 Stat[var_String, cond_:True, opt:OptionsPattern[Histogram]] /;IsntRule[cond] := Module[{selected = Sel[{var}, cond]},
   Print[TexName@var, " = ", Mean@Flatten@selected, " \[PlusMinus] ", StandardDeviation@Flatten@selected, " (mean, std var)"];
   (*Print["\[Sigma] contours: ", {#1,p2\[Sigma][1-#2]}& @@@ HistList[selected,30]];*)
-  Histogram[Flatten@selected, opt, FrameLabel->{StyledName@var, None}, FrameTicks->{{None,None},{Automatic,Automatic}},
-    ChartStyle->Directive[EdgeForm[None], Lighter@Gray], PlotOptions]];
+  Histogram[Flatten@selected, 50, "PDF", opt, FrameLabel->{StyledName@var, None},
+    FrameTicks->{{None,None},{Automatic,Automatic}}, ChartStyle->Directive[EdgeForm[None], Lighter@Gray], PlotOptions]];
 
 Stat[{var1_String, var2_String}, etc___] := PlotContour[{var1, var2}, etc];
 
