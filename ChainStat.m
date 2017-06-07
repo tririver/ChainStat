@@ -1,3 +1,5 @@
+(* ::Package:: *)
+
 (* Mathematica Package *)
 (* :Context: ChainStat` *)
 (* :Author: Yi Wang *)
@@ -113,9 +115,8 @@ SmoothDensityPlot[data_List, opts:OptionsPattern[DensityPlot]]:= Module[{fit, xm
 
 Options[LoadChain] = {"BurnIn"->0.3};
 LoadChain[fn_String, OptionsPattern[]]:= Module[{names, chainFiles, chainList, burnIn=OptionValue["BurnIn"]},
-  names = Map[StringTrim, Import[fn<>".paramnames"], -1];
-  (* for simplicity, assuming #chains \[LessEqual] 99. Otherwise, only first 99 are read. *)
-  chainFiles = Join[Import["!ls "<>fn<>"_?.txt","List"], Import["!ls "<>fn<>"_??.txt","List"]];
+  names = Map[StringTrim, Import[fn<>".paramnames", "TSV"], -1];
+  chainFiles = FileNames[(fn<>"_") ~~DigitCharacter..~~ ".txt"];
   chainList = Function[f, #[[Floor[burnIn*Length@#];;]]& @ ReadList[f,Table[Number,{Length@names+2}]]] /@ chainFiles;
   $Chain = Append[Transpose@names, Join@@chainList]]
 
