@@ -34,7 +34,9 @@ PlotContour::usage = "PlotContour[{var1, var2}] performs contour plot of the two
 PlotSample::usage = "PlotSample[{var1, var2}] performs direct plot of the two variables' data points.";
 Hist::usage = "Cot[{var1, var2, ...}, cond] calculates CDF on binned grads, subject to optional condition.";
 Stat::usage = "Stat[var] or Stat[{var1, var2}] do 1d or 2d statistics and plots.";
+HistNBins::usage = "Number of bins in 1d statistics.";
 PtPlot::usage = "PtPlot[{var1, var2}, cond] plots points on two dimensions.";
+TrianglePlot::usage = "TrianglePlot[{var1, var2, var3, ...}] performs triangle plots.";
 
 Begin["`Private`"]
 
@@ -110,12 +112,31 @@ SmoothDensityPlot[data_List, opts:OptionsPattern[DensityPlot]]:= Module[{fit, xm
   DensityPlot[fit[x, y], {x, xmin, xmax}, {y, ymin, ymax}, opts, PlotRange->All,
     ColorFunction->colorFunc, Evaluate[Sequence@@PlotOptions]]]
 
+(* PlotDensity:= PlotDensityM; *)(* This is the faster and the smoother between the two, but has less control. *)
+PlotDensity:= PlotDensityM;
+PlotDensityW[{var1_String, var2_String}, cond_:True, opt:OptionsPattern[DensityPlot]] /;IsntRule[cond] :=
+  SmoothDensityPlot[Cnt[{var1, var2}, cond], opt, PlotRange->All, FrameLabel->{StyledName@var1, StyledName@var2}];
+
+PlotDensityM[{var1_String, var2_String}, cond_:True, opt:OptionsPattern[SmoothDensityHistogram]] /;IsntRule[cond] :=
+  SmoothDensityHistogram[Sel[{var1, var2}, cond], opt, ColorFunction->(GrayLevel[1-#]&), PlotRange->Full,
+    FrameLabel->{StyledName@var1, StyledName@var2}, Evaluate[Sequence@@PlotOptions]];
+
+PlotContour[{var1_String, var2_String}, cond_:True, opt:OptionsPattern[ListContourPlot]] /;IsntRule[cond] :=
+  SmoothContourPlot[Hist[{var1, var2}, cond], opt, FrameLabel->{StyledName@var1, StyledName@var2}];
+
+PlotSample[{var1_String, var2_String}, cond_:True, opt:OptionsPattern[ListPlot]] /;IsntRule[cond] := ListPlot[Sel[{var1, var2}, cond],
+  opt, PlotStyle -> Directive[Black, Opacity@0.05], PlotRange->All,
+  FrameLabel->{StyledName@var1, StyledName@var2}, PlotOptions];
+                
+TrianglePlot[vars_List]:=Grid@Table[If[v1=!=v2,If[!OrderedQ[{v1,v2}],PlotDensity[{v2,v1}]],Stat[v1]],{v1,vars},{v2,vars}];    
+
 (* ****************************************************************************************************************** *)
 (* Load chain *)
 
 Options[LoadChain] = {"BurnIn"->0.3};
-LoadChain[fn_String, OptionsPattern[]]:= Module[{names, chainFiles, chainList, burnIn=OptionValue["BurnIn"]},
-  names = Map[StringTrim, Import[fn<>".paramnames", "TSV"], -1];
+LoadChain[fn_String, OptionsPattern[]]:= Module[{nameFile, names, chainFiles, chainList, burnIn=OptionValue["BurnIn"]},
+  nameFile = First @ FileNames[fn<>".paramnames"];
+  names = Map[StringTrim, Import[nameFile, "TSV"], -1];
   chainFiles = FileNames[(fn<>"_") ~~DigitCharacter..~~ ".txt"];
   chainList = Function[f, #[[Floor[burnIn*Length@#];;]]& @ ReadList[f,Table[Number,{Length@names+2}]]] /@ chainFiles;
   $Chain = Append[Transpose@names, Join@@chainList]]
@@ -176,26 +197,11 @@ IsntRule[f_] := Head[f]=!=List && Head[f]=!=Rule;
 Cnt[vars_List, cond_:True, opt:OptionsPattern[CntList]] /;IsntRule[cond] := CntList[Sel[vars, cond], opt];
 Hist[vars_List, cond_:True, opt:OptionsPattern[CntList]] /;IsntRule[cond] := Cnt[vars, cond, "Operation"->CalcCDF, opt]
 
-(* PlotDensity:= PlotDensityM; *)(* This is the faster and the smoother between the two, but has less control. *)
-PlotDensity:= PlotDensityM;
-PlotDensityW[{var1_String, var2_String}, cond_:True, opt:OptionsPattern[DensityPlot]] /;IsntRule[cond] :=
-  SmoothDensityPlot[Cnt[{var1, var2}, cond], opt, PlotRange->All, FrameLabel->{StyledName@var1, StyledName@var2}];
-
-PlotDensityM[{var1_String, var2_String}, cond_:True, opt:OptionsPattern[SmoothDensityHistogram]] /;IsntRule[cond] :=
-  SmoothDensityHistogram[Sel[{var1, var2}, cond], opt, ColorFunction->(GrayLevel[1-#]&), PlotRange->Full,
-    FrameLabel->{StyledName@var1, StyledName@var2}, Evaluate[Sequence@@PlotOptions]];
-
-PlotContour[{var1_String, var2_String}, cond_:True, opt:OptionsPattern[ListContourPlot]] /;IsntRule[cond] :=
-  SmoothContourPlot[Hist[{var1, var2}, cond], opt, FrameLabel->{StyledName@var1, StyledName@var2}];
-
-PlotSample[{var1_String, var2_String}, cond_:True, opt:OptionsPattern[ListPlot]] /;IsntRule[cond] := ListPlot[Sel[{var1, var2}, cond],
-  opt, PlotStyle -> Directive[Black, Opacity@0.05], PlotRange->All,
-  FrameLabel->{StyledName@var1, StyledName@var2}, PlotOptions];
-
+HistNBins = 20;
 Stat[var_String, cond_:True, opt:OptionsPattern[Histogram]] /;IsntRule[cond] := Module[{selected = Sel[{var}, cond]},
   Print[TexName@var, " = ", Mean@Flatten@selected, " \[PlusMinus] ", StandardDeviation@Flatten@selected, " (mean, std var)"];
   (*Print["\[Sigma] contours: ", {#1,p2\[Sigma][1-#2]}& @@@ HistList[selected,30]];*)
-  Histogram[Flatten@selected, 50, "PDF", opt, FrameLabel->{StyledName@var, None},
+  Histogram[Flatten@selected, HistNBins, "PDF", opt, FrameLabel->{StyledName@var, None},
     FrameTicks->{{None,None},{Automatic,Automatic}}, ChartStyle->Directive[EdgeForm[None], Lighter@Gray], PlotOptions]];
 
 Stat[{var1_String, var2_String}, etc___] := PlotContour[{var1, var2}, etc];
@@ -206,7 +212,7 @@ Stat[{var1_String, var2_String}, etc___] := PlotContour[{var1, var2}, etc];
 SetDirectory[If[$Notebooks && Quiet[Check[NotebookDirectory[],False]]=!=False (* If exists saved nb *),
   NotebookDirectory[], Import["!pwd","Text"]]];
 
-Print["ChainStat, by Yi Wang (2014, GPLv3). Report bug to tririverwangyi@gmail.com\nThis is a pre-alpha version. Please check with independent methods before using the results."];
+Print["ChainStat, by Yi Wang (2014, 2018, GPLv3). Report bug to tririverwangyi@gmail.com\nPlease check with independent methods before using the results."];
 
 End[]
 EndPackage[]
